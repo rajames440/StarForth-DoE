@@ -46,7 +46,8 @@ load_experiment_data <- function(csv_path) {
                     "total_lookups", "cache_hits", "cache_hit_percent",
                     "bucket_hits", "bucket_hit_percent",
                     "cache_hit_latency_ns", "context_accuracy_percent",
-                    "vm_workload_duration_ns_q48")
+                    "vm_workload_duration_ns_q48",
+                    "rolling_window_width", "decay_slope")
 
   cols_to_keep <- intersect(cols_we_need, names(data))
   data <- data[, cols_to_keep]
@@ -54,7 +55,8 @@ load_experiment_data <- function(csv_path) {
   # Convert numeric columns
   numeric_cols <- c("cache_hit_percent", "bucket_hit_percent", "context_accuracy_percent",
                     "vm_workload_duration_ns_q48", "cache_hit_latency_ns",
-                    "total_lookups", "cache_hits", "bucket_hits")
+                    "total_lookups", "cache_hits", "bucket_hits",
+                    "rolling_window_width", "decay_slope")
   for (col in numeric_cols) {
     if (col %in% names(data)) {
       data[[col]] <- as.numeric(data[[col]])
@@ -95,6 +97,10 @@ summary_stats <- doe_data %>%
     "Bucket_Hit_Max" = max(bucket_hit_percent, na.rm = TRUE),
     "Accuracy_Mean" = mean(context_accuracy_percent, na.rm = TRUE),
     "Accuracy_SD" = sd(context_accuracy_percent, na.rm = TRUE),
+    "Window_Width_Mean" = mean(rolling_window_width, na.rm = TRUE),
+    "Window_Width_SD" = sd(rolling_window_width, na.rm = TRUE),
+    "Decay_Slope_Mean" = mean(decay_slope, na.rm = TRUE),
+    "Decay_Slope_SD" = sd(decay_slope, na.rm = TRUE),
     .groups = 'drop'
   ) %>%
   arrange(configuration)
@@ -109,6 +115,26 @@ cat("\n")
 
 cat("Performing ANOVA tests...\n")
 
+safe_aov <- function(formula, data) {
+  response <- model.frame(formula, data)[[1]]
+  valid <- response[!is.na(response)]
+  if (length(valid) == 0 || length(unique(valid)) <= 1) {
+    return(NULL)
+  }
+  aov(formula, data = data)
+}
+
+safe_cor <- function(x, y) {
+  valid <- complete.cases(x, y)
+  x_valid <- x[valid]
+  y_valid <- y[valid]
+  if (length(x_valid) < 2 || length(unique(x_valid)) < 2 ||
+      length(y_valid) < 2 || length(unique(y_valid)) < 2) {
+    return(NA_real_)
+  }
+  cor(x_valid, y_valid)
+}
+
 # ANOVA for Cache Hit %
 aov_cache <- aov(cache_hit_percent ~ configuration, data = doe_data)
 aov_cache_summary <- summary(aov_cache)
@@ -120,6 +146,12 @@ aov_bucket_summary <- summary(aov_bucket)
 # ANOVA for Context Accuracy %
 aov_accuracy <- aov(context_accuracy_percent ~ configuration, data = doe_data)
 aov_accuracy_summary <- summary(aov_accuracy)
+
+# ANOVA for Rolling Window Width & Decay Slope
+aov_window <- safe_aov(rolling_window_width ~ configuration, data = doe_data)
+aov_decay <- safe_aov(decay_slope ~ configuration, data = doe_data)
+aov_window_summary <- if (!is.null(aov_window)) summary(aov_window) else NULL
+aov_decay_summary <- if (!is.null(aov_decay)) summary(aov_decay) else NULL
 
 # ============================================================================
 # Effect Sizes & Post-hoc Tests
@@ -142,6 +174,8 @@ cat("Performing post-hoc pairwise comparisons (Tukey HSD)...\n")
 tukey_cache <- TukeyHSD(aov_cache)
 tukey_bucket <- TukeyHSD(aov_bucket)
 tukey_accuracy <- TukeyHSD(aov_accuracy)
+tukey_window <- if (!is.null(aov_window)) TukeyHSD(aov_window) else NULL
+tukey_decay <- if (!is.null(aov_decay)) TukeyHSD(aov_decay) else NULL
 
 # ============================================================================
 # Interaction Effects (simplified)
@@ -158,12 +192,49 @@ config_effects <- doe_data %>%
     "Latency_ns" = mean(cache_hit_latency_ns, na.rm = TRUE),
     "Accuracy_pct" = mean(context_accuracy_percent, na.rm = TRUE),
     "VM_Workload_ns" = mean(vm_workload_duration_ns_q48, na.rm = TRUE),
+    "Window_Width" = mean(rolling_window_width, na.rm = TRUE),
+    "Decay_Slope" = mean(decay_slope, na.rm = TRUE),
     .groups = 'drop'
   ) %>%
   arrange(desc(`Cache_Hit_pct`))
 
 cat("Configuration Effects (ranked by cache hit %):\n")
 print(config_effects)
+cat("\n")
+
+window_decay_stats <- doe_data %>%
+  group_by(configuration) %>%
+  summarise(
+    "Window_Width_Mean" = mean(rolling_window_width, na.rm = TRUE),
+    "Window_Width_SD" = sd(rolling_window_width, na.rm = TRUE),
+    "Window_Width_Min" = min(rolling_window_width, na.rm = TRUE),
+    "Window_Width_Max" = max(rolling_window_width, na.rm = TRUE),
+    "Decay_Slope_Mean" = mean(decay_slope, na.rm = TRUE),
+    "Decay_Slope_SD" = sd(decay_slope, na.rm = TRUE),
+    "Decay_Slope_Min" = min(decay_slope, na.rm = TRUE),
+    "Decay_Slope_Max" = max(decay_slope, na.rm = TRUE),
+    .groups = 'drop'
+  )
+
+decay_relationships <- data.frame(
+  Relationship = c(
+    "Window Width vs Accuracy",
+    "Decay Slope vs Accuracy",
+    "Decay Slope vs Bucket Hit %"
+  ),
+  Correlation = c(
+    safe_cor(doe_data$rolling_window_width, doe_data$context_accuracy_percent),
+    safe_cor(doe_data$decay_slope, doe_data$context_accuracy_percent),
+    safe_cor(doe_data$decay_slope, doe_data$bucket_hit_percent)
+  )
+)
+
+cat("Rolling Window & Decay stats by configuration:\n")
+print(window_decay_stats)
+cat("\n")
+
+cat("Correlation highlights:\n")
+print(decay_relationships)
 cat("\n")
 
 # ============================================================================
@@ -268,10 +339,51 @@ create_effect_plot <- function(data, output_path) {
   cat("  Saved:", output_path, "\n")
 }
 
+create_window_decay_plots <- function(data, output_path) {
+  cat("Creating rolling window & decay visualizations...\n")
+
+  p_window <- ggplot(data, aes(x = reorder(configuration, rolling_window_width, FUN = median),
+                               y = rolling_window_width, fill = configuration)) +
+    geom_boxplot(alpha = 0.7) +
+    geom_jitter(width = 0.15, alpha = 0.3, size = 1.5) +
+    labs(title = "Rolling Window of Truth Width by Configuration",
+         x = "Configuration", y = "Window Width") +
+    theme_minimal() +
+    theme(legend.position = "none", plot.title = element_text(face = "bold"))
+
+  p_decay <- ggplot(data, aes(x = reorder(configuration, decay_slope, FUN = median),
+                              y = decay_slope, fill = configuration)) +
+    geom_boxplot(alpha = 0.7) +
+    geom_jitter(width = 0.15, alpha = 0.3, size = 1.5) +
+    labs(title = "Decay Slope by Configuration",
+         x = "Configuration", y = "Decay Slope") +
+    theme_minimal() +
+    theme(legend.position = "none", plot.title = element_text(face = "bold"))
+
+  decay_vs_accuracy <- data %>%
+    filter(!is.na(decay_slope), !is.na(context_accuracy_percent))
+
+  p_relationship <- ggplot(decay_vs_accuracy,
+                           aes(x = decay_slope, y = context_accuracy_percent,
+                               color = configuration)) +
+    geom_point(alpha = 0.6) +
+    geom_smooth(method = "lm", se = FALSE, linewidth = 0.8, linetype = "dashed") +
+    labs(title = "Decay Slope vs Context Accuracy",
+         x = "Decay Slope", y = "Context Accuracy %", color = "Configuration") +
+    theme_minimal() +
+    theme(plot.title = element_text(face = "bold"))
+
+  combined <- cowplot::plot_grid(p_window, p_decay, p_relationship,
+                                 nrow = 3, align = "v", rel_heights = c(1, 1, 1))
+  ggsave(output_path, combined, width = 12, height = 15, dpi = 300)
+  cat("  Saved:", output_path, "\n")
+}
+
 # Create visualizations
 create_boxplots(doe_data, file.path(output_dir, "01_boxplots.png"))
 create_distributions(doe_data, file.path(output_dir, "02_distributions.png"))
 create_effect_plot(doe_data, file.path(output_dir, "03_effects.png"))
+create_window_decay_plots(doe_data, file.path(output_dir, "04_window_decay.png"))
 
 # ============================================================================
 # Save Summary Statistics to CSV
@@ -280,6 +392,8 @@ create_effect_plot(doe_data, file.path(output_dir, "03_effects.png"))
 cat("Saving summary statistics...\n")
 write.csv(summary_stats, file.path(output_dir, "summary_statistics.csv"), row.names = FALSE)
 write.csv(config_effects, file.path(output_dir, "configuration_effects.csv"), row.names = FALSE)
+write.csv(window_decay_stats, file.path(output_dir, "window_decay_analysis.csv"), row.names = FALSE)
+write.csv(decay_relationships, file.path(output_dir, "window_decay_correlations.csv"), row.names = FALSE)
 
 # ============================================================================
 # Generate HTML Report
@@ -339,6 +453,8 @@ html_content <- sprintf('
       <th>Cache Hit %% (Mean ± SD)</th>
       <th>Bucket Hit %% (Mean ± SD)</th>
       <th>Accuracy %% (Mean ± SD)</th>
+      <th>Window Width (Mean ± SD)</th>
+      <th>Decay Slope (Mean ± SD)</th>
     </tr>
 ', format(Sys.time(), "%Y-%m-%d %H:%M:%S"), nrow(doe_data), paste(levels(doe_data$configuration), collapse = ", "))
 
@@ -352,12 +468,16 @@ for (i in 1:nrow(summary_stats)) {
       <td>%.2f ± %.2f</td>
       <td>%.2f ± %.2f</td>
       <td>%.2f ± %.2f</td>
+      <td>%.0f ± %.2f</td>
+      <td>%.4f ± %.4f</td>
     </tr>
 ', html_content,
     row$configuration, row$N,
     row$Cache_Hit_Mean, row$Cache_Hit_SD,
     row$Bucket_Hit_Mean, row$Bucket_Hit_SD,
-    row$Accuracy_Mean, row$Accuracy_SD
+    row$Accuracy_Mean, row$Accuracy_SD,
+    row$Window_Width_Mean, row$Window_Width_SD,
+    row$Decay_Slope_Mean, row$Decay_Slope_SD
   )
 }
 
@@ -492,9 +612,12 @@ cat("Results saved to:", output_dir, "\n\n")
 cat("Generated files:\n")
 cat("  - summary_statistics.csv\n")
 cat("  - configuration_effects.csv\n")
+cat("  - window_decay_analysis.csv\n")
+cat("  - window_decay_correlations.csv\n")
 cat("  - 01_boxplots.png\n")
 cat("  - 02_distributions.png\n")
 cat("  - 03_effects.png\n")
+cat("  - 04_window_decay.png\n")
 cat("  - doe_analysis_report.html\n\n")
 cat("Open the HTML report to view complete analysis:\n")
 cat("  ", report_path, "\n")

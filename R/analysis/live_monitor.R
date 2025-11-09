@@ -11,6 +11,7 @@ library(shiny)
 library(ggplot2)
 library(dplyr)
 library(tidyr)
+library(data.table)
 
 # Get CSV path from command line argument
 args <- commandArgs(trailingOnly = TRUE)
@@ -27,7 +28,8 @@ if (!file.exists(csv_path)) {
 
 load_latest_data <- function(csv_path, max_rows = NULL) {
   tryCatch({
-    data <- read.csv(csv_path, stringsAsFactors = FALSE)
+    # Use fread which is more forgiving of extra columns than read.csv
+    data <- as.data.frame(fread(csv_path))
 
     if (nrow(data) == 0) return(NULL)
 
@@ -39,7 +41,8 @@ load_latest_data <- function(csv_path, max_rows = NULL) {
     # Convert numeric columns
     numeric_cols <- c("cache_hit_percent", "bucket_hit_percent",
                       "cache_hit_latency_ns", "bucket_search_latency_ns",
-                      "context_accuracy_percent", "vm_workload_duration_ns_q48")
+                      "context_accuracy_percent", "vm_workload_duration_ns_q48",
+                      "rolling_window_width", "decay_slope")
     for (col in numeric_cols) {
       if (col %in% names(data)) {
         data[[col]] <- as.numeric(data[[col]])
@@ -72,6 +75,12 @@ ui <- fluidPage(
   fluidRow(
     column(6, plotOutput("boxplot_cache")),
     column(6, plotOutput("boxplot_bucket"))
+  ),
+
+  # Configuration parameters row - Window Width and Decay Slope
+  fluidRow(
+    column(6, plotOutput("boxplot_window")),
+    column(6, plotOutput("boxplot_decay"))
   ),
 
   # Time series row
@@ -167,6 +176,46 @@ server <- function(input, output, session) {
             plot.title = element_text(face = "bold", size = 12))
   })
 
+  # Boxplot: Window of Truth Width by Configuration
+  output$boxplot_window <- renderPlot({
+    data <- doe_data()
+    if (is.null(data) || nrow(data) == 0) {
+      plot.new()
+      text(0.5, 0.5, "No data yet", cex = 2, col = "gray")
+      return()
+    }
+
+    ggplot(data, aes(x = reorder(configuration, rolling_window_width, FUN = median),
+                     y = rolling_window_width, fill = configuration)) +
+      geom_boxplot(alpha = 0.7, outlier.alpha = 0.5) +
+      geom_jitter(width = 0.15, alpha = 0.3, size = 2) +
+      labs(title = "Window of Truth Width Distribution by Configuration",
+           x = "Configuration", y = "Window Width") +
+      theme_minimal() +
+      theme(legend.position = "none",
+            plot.title = element_text(face = "bold", size = 12))
+  })
+
+  # Boxplot: Decay Slope by Configuration
+  output$boxplot_decay <- renderPlot({
+    data <- doe_data()
+    if (is.null(data) || nrow(data) == 0) {
+      plot.new()
+      text(0.5, 0.5, "No data yet", cex = 2, col = "gray")
+      return()
+    }
+
+    ggplot(data, aes(x = reorder(configuration, decay_slope, FUN = median),
+                     y = decay_slope, fill = configuration)) +
+      geom_boxplot(alpha = 0.7, outlier.alpha = 0.5) +
+      geom_jitter(width = 0.15, alpha = 0.3, size = 2) +
+      labs(title = "Decay Slope Distribution by Configuration",
+           x = "Configuration", y = "Decay Slope") +
+      theme_minimal() +
+      theme(legend.position = "none",
+            plot.title = element_text(face = "bold", size = 12))
+  })
+
   # Time series: Metrics over time
   output$timeseries_plot <- renderPlot({
     data <- doe_data()
@@ -208,6 +257,8 @@ server <- function(input, output, session) {
         "Cache Hit % (SD)" = round(sd(cache_hit_percent, na.rm = TRUE), 2),
         "Bucket Hit % (Mean)" = round(mean(bucket_hit_percent, na.rm = TRUE), 2),
         "Bucket Hit % (SD)" = round(sd(bucket_hit_percent, na.rm = TRUE), 2),
+        "Window Width (Mean)" = round(mean(rolling_window_width, na.rm = TRUE), 2),
+        "Decay Slope (Mean)" = round(mean(decay_slope, na.rm = TRUE), 4),
         .groups = 'drop'
       ) %>%
       rename("Configuration" = configuration)
