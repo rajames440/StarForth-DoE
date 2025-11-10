@@ -4,7 +4,11 @@
 # StarForth DoE Live Monitor
 # Real-time streaming data visualization as experiment progresses
 #
-# Usage: Rscript live_monitor.R /path/to/experiment_results.csv
+# Usage:
+#   Rscript live_monitor.R DOE_01          # looks under ./experiments/DOE_01/
+#   Rscript live_monitor.R experiments/DOE_01
+#   Rscript live_monitor.R /full/path/to/experiment_results.csv
+#   Rscript live_monitor.R                 # defaults to most recent lab book entry
 #
 
 library(shiny)
@@ -12,46 +16,116 @@ library(ggplot2)
 library(dplyr)
 library(tidyr)
 
-# Get CSV path from command line argument
-args <- commandArgs(trailingOnly = TRUE)
-csv_path <- if (length(args) > 0) args[1] else "./experiment_results.csv"
-
-if (!file.exists(csv_path)) {
-  cat("Error: CSV file not found at", csv_path, "\n")
-  quit(status = 1)
+# Determine repository base relative to script location so we can always
+# resolve ./experiments/<label>/experiment_results.csv regardless of cwd.
+get_script_base <- function() {
+  cmd_args <- commandArgs(trailingOnly = FALSE)
+  file_arg <- "--file="
+  script_path <- sub(file_arg, "", cmd_args[grepl(file_arg, cmd_args)])
+  if (length(script_path) > 0) {
+    return(dirname(normalizePath(script_path[1], winslash = "/", mustWork = TRUE)))
+  }
+  normalizePath(getwd(), winslash = "/", mustWork = TRUE)
 }
+
+resolve_csv_path <- function(arg_value, lab_base) {
+  append_csv <- function(dir_path) {
+    file.path(dir_path, "experiment_results.csv")
+  }
+
+  if (!dir.exists(lab_base)) {
+    lab_base <- lab_base
+  }
+
+  if (!is.null(arg_value)) {
+    if (dir.exists(arg_value)) {
+      return(normalizePath(append_csv(arg_value), winslash = "/", mustWork = FALSE))
+    }
+
+    label_dir <- file.path(lab_base, arg_value)
+    if (dir.exists(label_dir)) {
+      return(normalizePath(append_csv(label_dir), winslash = "/", mustWork = FALSE))
+    }
+
+    if (grepl("\\.csv$", arg_value, ignore.case = TRUE)) {
+      return(normalizePath(arg_value, winslash = "/", mustWork = FALSE))
+    }
+
+    candidate_dir <- file.path(arg_value)
+    return(normalizePath(append_csv(candidate_dir), winslash = "/", mustWork = FALSE))
+  }
+
+  if (dir.exists(lab_base)) {
+    subdirs <- list.dirs(lab_base, recursive = FALSE, full.names = TRUE)
+    subdirs <- subdirs[subdirs != lab_base]
+    if (length(subdirs) > 0) {
+      latest_dir <- subdirs[which.max(file.info(subdirs)$mtime)]
+      return(normalizePath(append_csv(latest_dir), winslash = "/", mustWork = FALSE))
+    }
+  }
+
+  normalizePath("./experiment_results.csv", winslash = "/", mustWork = FALSE)
+}
+
+script_base <- get_script_base()
+experiments_base <- file.path(script_base, "experiments")
+
+# Get CSV path from command line argument or resolve via lab book directory
+args <- commandArgs(trailingOnly = TRUE)
+input_arg <- if (length(args) > 0) args[1] else NULL
+csv_path <- resolve_csv_path(input_arg, experiments_base)
+lab_directory <- dirname(csv_path)
+csv_exists <- file.exists(csv_path)
 
 # ============================================================================
 # Data Loading & Utility Functions
 # ============================================================================
 
 load_latest_data <- function(csv_path, max_rows = NULL) {
-  tryCatch({
-    data <- read.csv(csv_path, stringsAsFactors = FALSE)
-
-    if (nrow(data) == 0) return(NULL)
-
-    # Take latest N rows if specified
-    if (!is.null(max_rows) && nrow(data) > max_rows) {
-      data <- tail(data, max_rows)
-    }
-
-    # Convert numeric columns
-    numeric_cols <- c("cache_hit_percent", "bucket_hit_percent",
-                      "cache_hit_latency_ns", "bucket_search_latency_ns",
-                      "context_accuracy_percent", "vm_workload_duration_ns_q48")
-    for (col in numeric_cols) {
-      if (col %in% names(data)) {
-        data[[col]] <- as.numeric(data[[col]])
-      }
-    }
-
-    data$timestamp <- as.POSIXct(data$timestamp, format = "%Y-%m-%dT%H:%M:%S")
-    return(data)
-  }, error = function(e) {
-    cat("Error loading data:", e$message, "\n")
+  if (!file.exists(csv_path)) {
     return(NULL)
-  })
+  }
+
+  data <- tryCatch({
+    read.csv(csv_path, stringsAsFactors = FALSE, header = TRUE, strip.white = TRUE)
+  }, error = function(e) NULL)
+
+  if (is.null(data) || nrow(data) == 0) {
+    return(NULL)
+  }
+
+  # Take latest N rows if specified
+  if (!is.null(max_rows) && nrow(data) > max_rows) {
+    data <- tail(data, max_rows)
+  }
+
+  # Convert numeric columns with suppressWarnings
+  numeric_cols <- c("cache_hit_percent", "bucket_hit_percent",
+                    "cache_hit_latency_ns", "bucket_search_latency_ns",
+                    "context_accuracy_percent", "vm_workload_duration_ns_q48")
+  for (col in numeric_cols) {
+    if (col %in% names(data)) {
+      data[[col]] <- suppressWarnings(as.numeric(as.character(data[[col]])))
+    }
+  }
+
+  # Handle timestamp - try multiple approaches
+  if ("timestamp" %in% names(data)) {
+    data$timestamp <- suppressWarnings({
+      parsed <- as.POSIXct(data$timestamp, format = "%Y-%m-%dT%H:%M:%S")
+      if (all(is.na(parsed))) {
+        parsed <- as.POSIXct(data$timestamp, format = "%Y-%m-%d %H:%M:%S")
+      }
+      if (all(is.na(parsed))) {
+        parsed <- as.POSIXct(data$timestamp)
+      }
+      parsed
+    })
+  } else {
+    data$timestamp <- seq(Sys.time(), by = "1 sec", length.out = nrow(data))
+  }
+
+  return(data)
 }
 
 # ============================================================================
@@ -104,7 +178,7 @@ server <- function(input, output, session) {
 
   # Reactive data source
   doe_data <- reactive({
-    data_refresh()  # Dependency trigger
+    data_refresh()
     load_latest_data(csv_path, max_rows = 500)
   })
 
@@ -222,7 +296,12 @@ cat("\n")
 cat("=======================================================\n")
 cat("StarForth DoE Live Monitor\n")
 cat("=======================================================\n")
-cat("Monitoring:", csv_path, "\n")
+cat("Lab notebook base:", experiments_base, "\n")
+cat("Monitoring entry:", lab_directory, "\n")
+cat("CSV target:", csv_path, "\n")
+if (!csv_exists) {
+  cat("(CSV not found yet -- waiting for data to appear)\n")
+}
 cat("Opening Shiny app at: http://127.0.0.1:3838\n")
 cat("Press Ctrl+C to exit\n")
 cat("=======================================================\n\n")

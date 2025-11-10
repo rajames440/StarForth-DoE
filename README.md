@@ -7,6 +7,8 @@ Two-part analysis system for Design of Experiments data: **Live Monitoring** dur
 ## 1. LIVE MONITOR - Real-time Streaming Data Visualization
 
 Monitor your experiment as data flows in from the physics engine. Updates every 3 seconds.
+Every DoE run now lands in this repo under `./experiments/<LABEL>/` (`experiment_results.csv`
+plus a `run_logs/` folder). Treat each label (e.g., `DOE_01`, `TST_02`) as a lab-book entry.
 
 ### Requirements
 
@@ -25,15 +27,15 @@ if (length(missing) > 0) install.packages(missing)
 ### Usage
 
 ```bash
-# While experiment is running
-Rscript live_monitor.R /path/to/experiment_results.csv
+# While experiment is running (choose your preferred form)
+Rscript live_monitor.R DOE_01                  # label only
+Rscript live_monitor.R experiments/DOE_01     # explicit directory
+Rscript live_monitor.R /path/to/.../experiment_results.csv
+Rscript live_monitor.R                        # auto-select newest ./experiments/<label>
 ```
 
-**Example:**
-```bash
-./scripts/run_doe.sh --exp-iterations 2 ./DOE_results &
-Rscript live_monitor.R ./DOE_results/experiment_results.csv
-```
+The console banner prints the lab-book base, resolved entry, and CSV target so you
+can double-check what the monitor is tailing.
 
 ### What You See
 
@@ -70,18 +72,13 @@ if (length(missing) > 0) install.packages(missing)
 ### Usage
 
 ```bash
-# After experiment completes
-Rscript complete_study.R <csv_file> [output_directory]
-```
+# After experiment completes (keep artifacts with the lab-book entry)
+Rscript complete_study.R experiments/DOE_01/experiment_results.csv \
+                        experiments/DOE_01/analysis
 
-**Examples:**
-
-```bash
-# Basic usage
-Rscript complete_study.R ./DOE_results/experiment_results.csv
-
-# Specify output directory
+# Alternate forms (if you need a custom path)
 Rscript complete_study.R ./DOE_results/experiment_results.csv ./analysis_results
+Rscript complete_study.R /tmp/custom.csv /tmp/analysis
 ```
 
 ### Generated Output
@@ -132,44 +129,54 @@ analysis_results/
 #!/bin/bash
 
 # 1. Start monitoring in background
-Rscript live_monitor.R ./DOE_results/experiment_results.csv &
+Rscript live_monitor.R DOE_01 &
 MONITOR_PID=$!
 
 # 2. Run experiment
-./scripts/run_nested_doe.sh --exp-iterations 2 ./DOE_results
+./scripts/run_nested_doe.sh --exp-iterations 2 DOE_01
 
 # 3. Kill monitor
 kill $MONITOR_PID
 
 # 4. Generate complete analysis
-Rscript complete_study.R ./DOE_results/experiment_results.csv ./doe_analysis
+Rscript complete_study.R experiments/DOE_01/experiment_results.csv \\
+                        experiments/DOE_01/analysis
 
 # 5. View results
-open ./doe_analysis/doe_analysis_report.html  # macOS
+open experiments/DOE_01/analysis/doe_analysis_report.html  # macOS
 # or
-xdg-open ./doe_analysis/doe_analysis_report.html  # Linux
+xdg-open experiments/DOE_01/analysis/doe_analysis_report.html  # Linux
 ```
 
 ---
 
-## CSV Format Expected
+## Lab Notebook Layout & CSV Format
 
-Both scripts expect the standard output from `run_doe.sh` or `run_nested_doe.sh`:
+Both scripts expect the standard output from `run_doe.sh` or `run_nested_doe.sh`,
+which now always write into this repository:
 
 ```
-timestamp,configuration,run_number,total_lookups,cache_hits,cache_hit_percent,...
-2025-11-09T05:55:28,A_B_CACHE,9,3865,0,0.00,...
-...
+experiments/
+├── DOE_00/
+│   ├── experiment_results.csv   # 35-column dataset (timestamp + all metrics)
+│   └── run_logs/
+├── DOE_01/
+│   ├── experiment_results.csv
+│   └── run_logs/
+└── ...
 ```
 
-**Key Columns Used:**
-- `timestamp` - Experiment timestamp
-- `configuration` - Build config (A_BASELINE, A_B_CACHE, A_C_FULL, A_B_C_FULL)
-- `cache_hit_percent` - Cache performance metric
-- `bucket_hit_percent` - Bucket performance metric
-- `context_accuracy_percent` - Prediction accuracy
-- `vm_workload_duration_ns_q48` - Workload duration
-- `cache_hit_latency_ns` - Cache latency
+The CSV header includes every metric emitted by the VM; the scripts mainly consume
+the core subset below (others remain available for deeper dives):
+
+- `timestamp` – UTC timestamp for the run
+- `configuration` – Build config (A_BASELINE, A_B_CACHE, A_C_FULL, A_B_C_FULL)
+- `run_number` – Ordinal within the configuration
+- `cache_hit_percent` / `bucket_hit_percent`
+- `context_accuracy_percent`
+- `cache_hit_latency_ns`
+- `vm_workload_duration_ns_q48`
+- Additional knobs (`prefetch_*`, `hot_word_count`, `decay_rate_q16`, etc.)
 
 ---
 
@@ -204,8 +211,9 @@ chmod +x /home/rajames/CLionProjects/StarForth-DoE/complete_study.R
 
 Then you can run them as:
 ```bash
-./live_monitor.R /path/to/csv
-./complete_study.R /path/to/csv ./output_dir
+./live_monitor.R DOE_01
+./complete_study.R experiments/DOE_01/experiment_results.csv \
+                   experiments/DOE_01/analysis
 ```
 
 ---

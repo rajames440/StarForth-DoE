@@ -12,17 +12,20 @@ chmod +x live_monitor.R complete_study.R
 
 ## Two-Phase Workflow
 
+StarForth DoE runs now store results directly in this repo under `./experiments/<LABEL>/`
+(`experiment_results.csv` plus `run_logs/`). Treat each label (`DOE_01`, `TST_02`, etc.)
+as a lab-book entry and keep the final analysis next to it.
+
 ### Phase 1: LIVE MONITORING (During Experiment)
 
 ```bash
-# Start in background
-./live_monitor.R /path/to/experiment_results.csv &
+# Start in background (label, directory, or explicit CSV)
+./live_monitor.R DOE_01 &
 
-# Run your experiment
-./scripts/run_doe.sh --exp-iterations 2 ./results
+# Run your experiment (writes into ./experiments/DOE_01/)
+./scripts/run_doe.sh --exp-iterations 2 DOE_01
 
-# Monitor opens at: http://127.0.0.1:3838
-# Updates every 3 seconds with streaming data
+# Monitor opens at: http://127.0.0.1:3838 (auto-refresh every 3s)
 ```
 
 **Live Monitor Shows:**
@@ -34,11 +37,12 @@ chmod +x live_monitor.R complete_study.R
 ### Phase 2: COMPLETE ANALYSIS (After Experiment)
 
 ```bash
-# Once experiment finishes:
-./complete_study.R ./results/experiment_results.csv ./analysis_output
+# Once experiment finishes (keep analysis with the run):
+./complete_study.R experiments/DOE_01/experiment_results.csv \\
+                   experiments/DOE_01/analysis
 
 # Opens analysis report:
-open ./analysis_output/doe_analysis_report.html
+open experiments/DOE_01/analysis/doe_analysis_report.html
 ```
 
 **Report Contains:**
@@ -57,22 +61,23 @@ open ./analysis_output/doe_analysis_report.html
 #!/bin/bash
 
 # Start live monitor in background
-./live_monitor.R ./DOE_results/experiment_results.csv &
+./live_monitor.R DOE_01 &
 MONITOR_PID=$!
 
 echo "Live monitor running at http://127.0.0.1:3838"
 
 # Run nested DoE experiment
-./scripts/run_nested_doe.sh --exp-iterations 2 ./DOE_results
+./scripts/run_nested_doe.sh --exp-iterations 2 DOE_01
 
 # Stop monitor
 kill $MONITOR_PID
 
 # Generate complete analysis
-./complete_study.R ./DOE_results/experiment_results.csv ./doe_analysis
+./complete_study.R experiments/DOE_01/experiment_results.csv \\
+                   experiments/DOE_01/analysis
 
 # Display results
-echo "Analysis complete. Open: ./doe_analysis/doe_analysis_report.html"
+echo "Analysis complete. Open: experiments/DOE_01/analysis/doe_analysis_report.html"
 ```
 
 ---
@@ -91,7 +96,7 @@ echo "Analysis complete. Open: ./doe_analysis/doe_analysis_report.html"
 ## What Gets Generated
 
 ```
-analysis_output/
+experiments/DOE_01/analysis/
 ├── doe_analysis_report.html         ← Main report (open in browser)
 ├── summary_statistics.csv           ← Stats by configuration
 ├── configuration_effects.csv        ← Mean effects comparison
@@ -118,4 +123,3 @@ analysis_output/
 2. **Export CSV files** - for integration with other tools
 3. **Share visualizations** - PNG files are publication-ready
 4. **Run follow-up experiments** - iterate based on findings
-
