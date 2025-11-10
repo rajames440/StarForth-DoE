@@ -1,5 +1,0 @@
-"configuration","N","Cache_Hit_Mean","Cache_Hit_SD","Cache_Hit_Min","Cache_Hit_Max","Bucket_Hit_Mean","Bucket_Hit_SD","Bucket_Hit_Min","Bucket_Hit_Max","Accuracy_Mean","Accuracy_SD","Window_Width_Mean","Window_Width_SD","Decay_Slope_Mean","Decay_Slope_SD"
-"A_B_C_FULL",30,7.35,0,7.35,7.35,74.68,0,74.68,74.68,88.37,0,4096,0,2,0
-"A_B_CACHE",30,0.358333333333333,0.0639009650422694,0.02,0.37,81.6616666666667,0.0639009650422683,81.65,82,0,0,4096,0,2,0
-"A_BASELINE",30,0,0,0,0,0,0,0,0,0,0,4096,0,2,0
-"A_C_FULL",30,0,0,0,0,0,0,0,0,0,0,4096,0,2,0

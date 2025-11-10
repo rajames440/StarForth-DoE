@@ -1,24 +1,18 @@
 #!/usr/bin/env Rscript
 
-#
-# StarForth DoE Complete Study Analysis
-# One-click statistical analysis and report generation after experiment concludes
-#
-# Usage: Rscript complete_study.R /path/to/experiment_results.csv [output_dir]
-#
-
-library(dplyr)
-library(ggplot2)
-library(tidyr)
-library(cowplot)
-library(data.table)
+suppressPackageStartupMessages({
+  library(dplyr)
+  library(ggplot2)
+  library(tidyr)
+  library(cowplot)
+  library(data.table)
+})
 
 args <- commandArgs(trailingOnly = TRUE)
 
 if (length(args) == 0) {
-  cat("Usage: Rscript complete_study.R <csv_file> [output_dir]\n")
-  cat("\nExample:\n")
-  cat("  Rscript complete_study.R ./experiment_results.csv ./analysis_results\n")
+  cat("Usage: Rscript complete_study.R <csv_file> [output_dir]\\n")
+  cat("Example: Rscript complete_study.R ./experiment_results.csv ./analysis_results\\n")
   quit(status = 1)
 }
 
@@ -26,599 +20,482 @@ csv_path <- args[1]
 output_dir <- if (length(args) > 1) args[2] else "./doe_analysis"
 
 if (!file.exists(csv_path)) {
-  cat("Error: CSV file not found at", csv_path, "\n")
+  cat("Error: CSV file not found at", csv_path, "\\n")
   quit(status = 1)
 }
 
 dir.create(output_dir, showWarnings = FALSE, recursive = TRUE)
 
-# ============================================================================
-# Data Loading
-# ============================================================================
+# ---------------------------------------------------------------------------
+# Helper utilities
+# ---------------------------------------------------------------------------
 
-load_experiment_data <- function(csv_path) {
-  cat("Loading experiment data...\n")
-  # Use fread from data.table which is more forgiving of extra columns
-  data <- as.data.frame(fread(csv_path))
-
-  # Keep only the columns we actually care about
-  cols_we_need <- c("timestamp", "configuration", "run_number",
-                    "total_lookups", "cache_hits", "cache_hit_percent",
-                    "bucket_hits", "bucket_hit_percent",
-                    "cache_hit_latency_ns", "context_accuracy_percent",
-                    "vm_workload_duration_ns_q48",
-                    "rolling_window_width", "decay_slope")
-
-  cols_to_keep <- intersect(cols_we_need, names(data))
-  data <- data[, cols_to_keep]
-
-  # Convert numeric columns
-  numeric_cols <- c("cache_hit_percent", "bucket_hit_percent", "context_accuracy_percent",
-                    "vm_workload_duration_ns_q48", "cache_hit_latency_ns",
-                    "total_lookups", "cache_hits", "bucket_hits",
-                    "rolling_window_width", "decay_slope")
-  for (col in numeric_cols) {
-    if (col %in% names(data)) {
-      data[[col]] <- as.numeric(data[[col]])
-    }
-  }
-
-  if ("timestamp" %in% names(data)) {
-    data$timestamp <- as.POSIXct(data$timestamp, format = "%Y-%m-%dT%H:%M:%S")
-  }
-  if ("configuration" %in% names(data)) {
-    data$configuration <- as.factor(data$configuration)
-  }
-
-  return(data)
+humanize_metric <- function(metric) {
+  label <- gsub("_pct$", "_percent", metric)
+  label <- gsub("_percent", " %", label, fixed = TRUE)
+  label <- gsub("_ns", " (ns)", label, fixed = TRUE)
+  label <- gsub("_mhz", " (MHz)", label, fixed = TRUE)
+  label <- gsub("_c_q48", " (C)", label, fixed = TRUE)
+  label <- gsub("_", " ", label)
+  tools::toTitleCase(label)
 }
 
-doe_data <- load_experiment_data(csv_path)
-cat("Loaded", nrow(doe_data), "observations\n")
-cat("Configurations:", paste(levels(doe_data$configuration), collapse = ", "), "\n\n")
+coerce_numeric_columns <- function(df, excludes = c("configuration")) {
+  for (name in names(df)) {
+    if (name %in% excludes) next
+    if (inherits(df[[name]], "POSIXct")) next
+    if (is.numeric(df[[name]])) next
+    if (is.logical(df[[name]])) {
+      df[[name]] <- as.numeric(df[[name]])
+      next
+    }
+    suppressWarnings(num <- as.numeric(df[[name]]))
+    if (!all(is.na(num))) {
+      df[[name]] <- num
+    }
+  }
+  df
+}
 
-# ============================================================================
-# Exploratory Data Analysis
-# ============================================================================
+identify_numeric_metrics <- function(df) {
+  metrics <- names(df)[sapply(df, is.numeric)]
+  metrics <- setdiff(metrics, c("run_number"))
+  metrics
+}
 
-cat("Computing descriptive statistics...\n")
+choose_primary_metrics <- function(metrics, limit = 6) {
+  priority <- c(
+    "cache_hit_percent",
+    "bucket_hit_percent",
+    "context_accuracy_percent",
+    "prefetch_accuracy_percent",
+    "vm_workload_duration_ns_q48",
+    "cache_hit_latency_ns",
+    "bucket_search_latency_ns",
+    "cpu_temp_delta_c_q48",
+    "cpu_freq_delta_mhz_q48"
+  )
+  ordered <- unique(c(priority, metrics))
+  ordered <- ordered[ordered %in% metrics]
+  ordered[seq_len(min(length(ordered), limit))]
+}
 
-summary_stats <- doe_data %>%
-  group_by(configuration) %>%
-  summarise(
-    N = n(),
-    "Cache_Hit_Mean" = mean(cache_hit_percent, na.rm = TRUE),
-    "Cache_Hit_SD" = sd(cache_hit_percent, na.rm = TRUE),
-    "Cache_Hit_Min" = min(cache_hit_percent, na.rm = TRUE),
-    "Cache_Hit_Max" = max(cache_hit_percent, na.rm = TRUE),
-    "Bucket_Hit_Mean" = mean(bucket_hit_percent, na.rm = TRUE),
-    "Bucket_Hit_SD" = sd(bucket_hit_percent, na.rm = TRUE),
-    "Bucket_Hit_Min" = min(bucket_hit_percent, na.rm = TRUE),
-    "Bucket_Hit_Max" = max(bucket_hit_percent, na.rm = TRUE),
-    "Accuracy_Mean" = mean(context_accuracy_percent, na.rm = TRUE),
-    "Accuracy_SD" = sd(context_accuracy_percent, na.rm = TRUE),
-    "Window_Width_Mean" = mean(rolling_window_width, na.rm = TRUE),
-    "Window_Width_SD" = sd(rolling_window_width, na.rm = TRUE),
-    "Decay_Slope_Mean" = mean(decay_slope, na.rm = TRUE),
-    "Decay_Slope_SD" = sd(decay_slope, na.rm = TRUE),
-    .groups = 'drop'
-  ) %>%
-  arrange(configuration)
-
-cat("Summary Statistics:\n")
-print(summary_stats)
-cat("\n")
-
-# ============================================================================
-# Statistical Tests
-# ============================================================================
-
-cat("Performing ANOVA tests...\n")
+format_mean_sd <- function(mean_val, sd_val) {
+  if (is.na(mean_val)) return("n/a")
+  if (is.na(sd_val) || sd_val == 0) {
+    return(sprintf("%.2f", mean_val))
+  }
+  sprintf("%.2f ± %.2f", mean_val, sd_val)
+}
 
 safe_aov <- function(formula, data) {
   response <- model.frame(formula, data)[[1]]
   valid <- response[!is.na(response)]
-  if (length(valid) == 0 || length(unique(valid)) <= 1) {
+  if (length(valid) < 2 || length(unique(valid)) < 2) {
     return(NULL)
   }
-  aov(formula, data = data)
-}
-
-safe_cor <- function(x, y) {
-  valid <- complete.cases(x, y)
-  x_valid <- x[valid]
-  y_valid <- y[valid]
-  if (length(x_valid) < 2 || length(unique(x_valid)) < 2 ||
-      length(y_valid) < 2 || length(unique(y_valid)) < 2) {
-    return(NA_real_)
+  if (length(unique(data$configuration)) < 2) {
+    return(NULL)
   }
-  cor(x_valid, y_valid)
+  suppressWarnings(tryCatch(aov(formula, data = data), error = function(e) NULL))
 }
 
-# ANOVA for Cache Hit %
-aov_cache <- aov(cache_hit_percent ~ configuration, data = doe_data)
-aov_cache_summary <- summary(aov_cache)
-
-# ANOVA for Bucket Hit %
-aov_bucket <- aov(bucket_hit_percent ~ configuration, data = doe_data)
-aov_bucket_summary <- summary(aov_bucket)
-
-# ANOVA for Context Accuracy %
-aov_accuracy <- aov(context_accuracy_percent ~ configuration, data = doe_data)
-aov_accuracy_summary <- summary(aov_accuracy)
-
-# ANOVA for Rolling Window Width & Decay Slope
-aov_window <- safe_aov(rolling_window_width ~ configuration, data = doe_data)
-aov_decay <- safe_aov(decay_slope ~ configuration, data = doe_data)
-aov_window_summary <- if (!is.null(aov_window)) summary(aov_window) else NULL
-aov_decay_summary <- if (!is.null(aov_decay)) summary(aov_decay) else NULL
-
-# ============================================================================
-# Effect Sizes & Post-hoc Tests
-# ============================================================================
-
-cat("Computing effect sizes (eta-squared)...\n")
-
-compute_eta_squared <- function(aov_obj) {
-  sum_sq <- aov_obj$coefficients[1] ^ 2  # This is a rough approximation
-  # Better approach: extract from summary
-  ss_treatment <- aov_obj[[1]][1, 2]
-  ss_total <- sum(aov_obj[[1]][, 2])
-  eta_sq <- ss_treatment / ss_total
-  return(eta_sq)
-}
-
-# Post-hoc pairwise comparisons (Tukey HSD)
-cat("Performing post-hoc pairwise comparisons (Tukey HSD)...\n")
-
-tukey_cache <- TukeyHSD(aov_cache)
-tukey_bucket <- TukeyHSD(aov_bucket)
-tukey_accuracy <- TukeyHSD(aov_accuracy)
-tukey_window <- if (!is.null(aov_window)) TukeyHSD(aov_window) else NULL
-tukey_decay <- if (!is.null(aov_decay)) TukeyHSD(aov_decay) else NULL
-
-# ============================================================================
-# Interaction Effects (simplified)
-# ============================================================================
-
-cat("Analyzing performance characteristics by configuration...\n")
-
-# Calculate effect of each configuration on key metrics
-config_effects <- doe_data %>%
-  group_by(configuration) %>%
-  summarise(
-    "Cache_Hit_pct" = mean(cache_hit_percent, na.rm = TRUE),
-    "Bucket_Hit_pct" = mean(bucket_hit_percent, na.rm = TRUE),
-    "Latency_ns" = mean(cache_hit_latency_ns, na.rm = TRUE),
-    "Accuracy_pct" = mean(context_accuracy_percent, na.rm = TRUE),
-    "VM_Workload_ns" = mean(vm_workload_duration_ns_q48, na.rm = TRUE),
-    "Window_Width" = mean(rolling_window_width, na.rm = TRUE),
-    "Decay_Slope" = mean(decay_slope, na.rm = TRUE),
-    .groups = 'drop'
-  ) %>%
-  arrange(desc(`Cache_Hit_pct`))
-
-cat("Configuration Effects (ranked by cache hit %):\n")
-print(config_effects)
-cat("\n")
-
-window_decay_stats <- doe_data %>%
-  group_by(configuration) %>%
-  summarise(
-    "Window_Width_Mean" = mean(rolling_window_width, na.rm = TRUE),
-    "Window_Width_SD" = sd(rolling_window_width, na.rm = TRUE),
-    "Window_Width_Min" = min(rolling_window_width, na.rm = TRUE),
-    "Window_Width_Max" = max(rolling_window_width, na.rm = TRUE),
-    "Decay_Slope_Mean" = mean(decay_slope, na.rm = TRUE),
-    "Decay_Slope_SD" = sd(decay_slope, na.rm = TRUE),
-    "Decay_Slope_Min" = min(decay_slope, na.rm = TRUE),
-    "Decay_Slope_Max" = max(decay_slope, na.rm = TRUE),
-    .groups = 'drop'
+run_anova_for_metric <- function(metric, data) {
+  if (!(metric %in% names(data))) {
+    return(NULL)
+  }
+  formula <- stats::as.formula(sprintf("%s ~ configuration", metric))
+  model <- safe_aov(formula, data)
+  if (is.null(model)) {
+    return(NULL)
+  }
+  list(
+    metric = metric,
+    model = model,
+    summary = summary(model),
+    tukey = tryCatch(TukeyHSD(model), error = function(e) NULL)
   )
-
-decay_relationships <- data.frame(
-  Relationship = c(
-    "Window Width vs Accuracy",
-    "Decay Slope vs Accuracy",
-    "Decay Slope vs Bucket Hit %"
-  ),
-  Correlation = c(
-    safe_cor(doe_data$rolling_window_width, doe_data$context_accuracy_percent),
-    safe_cor(doe_data$decay_slope, doe_data$context_accuracy_percent),
-    safe_cor(doe_data$decay_slope, doe_data$bucket_hit_percent)
-  )
-)
-
-cat("Rolling Window & Decay stats by configuration:\n")
-print(window_decay_stats)
-cat("\n")
-
-cat("Correlation highlights:\n")
-print(decay_relationships)
-cat("\n")
-
-# ============================================================================
-# Visualization Functions
-# ============================================================================
-
-create_boxplots <- function(data, output_path) {
-  cat("Creating boxplot visualizations...\n")
-
-  p1 <- ggplot(data, aes(x = reorder(configuration, cache_hit_percent, FUN = median),
-                         y = cache_hit_percent, fill = configuration)) +
-    geom_boxplot(alpha = 0.7) +
-    geom_jitter(width = 0.15, alpha = 0.3, size = 2) +
-    labs(title = "Cache Hit % by Configuration",
-         x = "Configuration", y = "Cache Hit %") +
-    theme_minimal() +
-    theme(legend.position = "none", plot.title = element_text(face = "bold"))
-
-  p2 <- ggplot(data, aes(x = reorder(configuration, bucket_hit_percent, FUN = median),
-                         y = bucket_hit_percent, fill = configuration)) +
-    geom_boxplot(alpha = 0.7) +
-    geom_jitter(width = 0.15, alpha = 0.3, size = 2) +
-    labs(title = "Bucket Hit % by Configuration",
-         x = "Configuration", y = "Bucket Hit %") +
-    theme_minimal() +
-    theme(legend.position = "none", plot.title = element_text(face = "bold"))
-
-  p3 <- ggplot(data, aes(x = reorder(configuration, context_accuracy_percent, FUN = median),
-                         y = context_accuracy_percent, fill = configuration)) +
-    geom_boxplot(alpha = 0.7) +
-    geom_jitter(width = 0.15, alpha = 0.3, size = 2) +
-    labs(title = "Context Accuracy % by Configuration",
-         x = "Configuration", y = "Context Accuracy %") +
-    theme_minimal() +
-    theme(legend.position = "none", plot.title = element_text(face = "bold"))
-
-  p4 <- ggplot(data, aes(x = reorder(configuration, vm_workload_duration_ns_q48, FUN = median),
-                         y = vm_workload_duration_ns_q48, fill = configuration)) +
-    geom_boxplot(alpha = 0.7) +
-    geom_jitter(width = 0.15, alpha = 0.3, size = 1) +
-    labs(title = "VM Workload Duration (ns) by Configuration",
-         x = "Configuration", y = "Duration (ns)") +
-    theme_minimal() +
-    theme(legend.position = "none", plot.title = element_text(face = "bold"))
-
-  combined <- cowplot::plot_grid(p1, p2, p3, p4, nrow = 2)
-  ggsave(output_path, combined, width = 14, height = 10, dpi = 300)
-  cat("  Saved:", output_path, "\n")
 }
 
-create_distributions <- function(data, output_path) {
-  cat("Creating distribution plots...\n")
-
-  p1 <- ggplot(data, aes(x = cache_hit_percent, fill = configuration)) +
-    geom_density(alpha = 0.5) +
-    labs(title = "Cache Hit % Distribution by Configuration",
-         x = "Cache Hit %", y = "Density") +
+plot_metric_box <- function(data, metric) {
+  ggplot(data, aes(x = configuration, y = .data[[metric]], fill = configuration)) +
+    geom_boxplot(alpha = 0.75, outlier.alpha = 0.4) +
+    geom_jitter(width = 0.15, alpha = 0.25, size = 1.5) +
+    labs(title = humanize_metric(metric), x = "Configuration", y = humanize_metric(metric)) +
     theme_minimal() +
-    theme(plot.title = element_text(face = "bold"))
-
-  p2 <- ggplot(data, aes(x = bucket_hit_percent, fill = configuration)) +
-    geom_density(alpha = 0.5) +
-    labs(title = "Bucket Hit % Distribution by Configuration",
-         x = "Bucket Hit %", y = "Density") +
-    theme_minimal() +
-    theme(plot.title = element_text(face = "bold"))
-
-  p3 <- ggplot(data, aes(x = context_accuracy_percent, fill = configuration)) +
-    geom_density(alpha = 0.5) +
-    labs(title = "Context Accuracy % Distribution by Configuration",
-         x = "Context Accuracy %", y = "Density") +
-    theme_minimal() +
-    theme(plot.title = element_text(face = "bold"))
-
-  combined <- cowplot::plot_grid(p1, p2, p3, nrow = 3)
-  ggsave(output_path, combined, width = 12, height = 10, dpi = 300)
-  cat("  Saved:", output_path, "\n")
+    theme(legend.position = "none", plot.title = element_text(face = "bold"))
 }
 
-create_effect_plot <- function(data, output_path) {
-  cat("Creating effect size visualization...\n")
+plot_metric_density <- function(data, metric) {
+  ggplot(data, aes(x = .data[[metric]], fill = configuration, color = configuration)) +
+    geom_density(alpha = 0.25) +
+    labs(title = humanize_metric(metric), x = humanize_metric(metric), y = "Density", fill = "Configuration", color = "Configuration") +
+    theme_minimal() +
+    theme(plot.title = element_text(face = "bold"))
+}
 
-  effects <- data %>%
+plot_metric_effects <- function(data, metrics) {
+  metrics <- intersect(metrics, names(data))
+  if (length(metrics) == 0) {
+    return(NULL)
+  }
+
+  long <- data %>%
     group_by(configuration) %>%
-    summarise(
-      "Cache_Hit" = mean(cache_hit_percent, na.rm = TRUE),
-      "Bucket_Hit" = mean(bucket_hit_percent, na.rm = TRUE),
-      "Accuracy" = mean(context_accuracy_percent, na.rm = TRUE),
-      .groups = 'drop'
-    ) %>%
+    summarise(across(all_of(metrics), ~mean(.x, na.rm = TRUE)), .groups = "drop") %>%
     pivot_longer(cols = -configuration, names_to = "metric", values_to = "value")
 
-  p <- ggplot(effects, aes(x = configuration, y = value, fill = metric)) +
-    geom_col(position = "dodge", alpha = 0.8) +
-    labs(title = "Mean Effects by Configuration and Metric",
-         x = "Configuration", y = "Mean Value") +
+  ggplot(long, aes(x = configuration, y = value, fill = metric)) +
+    geom_col(position = "dodge", alpha = 0.85) +
+    labs(title = "Mean Metric Effects by Configuration", x = "Configuration", y = "Mean Value", fill = "Metric") +
     theme_minimal() +
-    theme(plot.title = element_text(face = "bold"),
-          axis.text.x = element_text(angle = 45, hjust = 1))
-
-  ggsave(output_path, p, width = 10, height = 6, dpi = 300)
-  cat("  Saved:", output_path, "\n")
+    theme(plot.title = element_text(face = "bold"), axis.text.x = element_text(angle = 45, hjust = 1))
 }
 
-create_window_decay_plots <- function(data, output_path) {
-  cat("Creating rolling window & decay visualizations...\n")
+plot_correlation_heatmap <- function(data, metrics) {
+  metrics <- intersect(metrics, names(data))
+  if (length(metrics) < 2) {
+    return(NULL)
+  }
+  corr <- suppressWarnings(tryCatch(stats::cor(data[, metrics], use = "pairwise.complete.obs"), error = function(e) NULL))
+  if (is.null(corr)) {
+    return(NULL)
+  }
+  corr_df <- as.data.frame(as.table(round(corr, 3)))
+  names(corr_df) <- c("MetricX", "MetricY", "Correlation")
 
-  p_window <- ggplot(data, aes(x = reorder(configuration, rolling_window_width, FUN = median),
-                               y = rolling_window_width, fill = configuration)) +
-    geom_boxplot(alpha = 0.7) +
-    geom_jitter(width = 0.15, alpha = 0.3, size = 1.5) +
-    labs(title = "Rolling Window of Truth Width by Configuration",
-         x = "Configuration", y = "Window Width") +
+  ggplot(corr_df, aes(x = MetricX, y = MetricY, fill = Correlation)) +
+    geom_tile(color = "white") +
+    geom_text(aes(label = sprintf("%.2f", Correlation)), size = 3) +
+    scale_fill_gradient2(low = "#b2182b", mid = "#f7f7f7", high = "#2166ac", midpoint = 0, limits = c(-1, 1)) +
+    labs(title = "Correlation Heatmap", x = NULL, y = NULL) +
     theme_minimal() +
-    theme(legend.position = "none", plot.title = element_text(face = "bold"))
-
-  p_decay <- ggplot(data, aes(x = reorder(configuration, decay_slope, FUN = median),
-                              y = decay_slope, fill = configuration)) +
-    geom_boxplot(alpha = 0.7) +
-    geom_jitter(width = 0.15, alpha = 0.3, size = 1.5) +
-    labs(title = "Decay Slope by Configuration",
-         x = "Configuration", y = "Decay Slope") +
-    theme_minimal() +
-    theme(legend.position = "none", plot.title = element_text(face = "bold"))
-
-  decay_vs_accuracy <- data %>%
-    filter(!is.na(decay_slope), !is.na(context_accuracy_percent))
-
-  p_relationship <- ggplot(decay_vs_accuracy,
-                           aes(x = decay_slope, y = context_accuracy_percent,
-                               color = configuration)) +
-    geom_point(alpha = 0.6) +
-    geom_smooth(method = "lm", se = FALSE, linewidth = 0.8, linetype = "dashed") +
-    labs(title = "Decay Slope vs Context Accuracy",
-         x = "Decay Slope", y = "Context Accuracy %", color = "Configuration") +
-    theme_minimal() +
-    theme(plot.title = element_text(face = "bold"))
-
-  combined <- cowplot::plot_grid(p_window, p_decay, p_relationship,
-                                 nrow = 3, align = "v", rel_heights = c(1, 1, 1))
-  ggsave(output_path, combined, width = 12, height = 15, dpi = 300)
-  cat("  Saved:", output_path, "\n")
+    theme(axis.text.x = element_text(angle = 45, hjust = 1), plot.title = element_text(face = "bold"))
 }
 
-# Create visualizations
-create_boxplots(doe_data, file.path(output_dir, "01_boxplots.png"))
-create_distributions(doe_data, file.path(output_dir, "02_distributions.png"))
-create_effect_plot(doe_data, file.path(output_dir, "03_effects.png"))
-create_window_decay_plots(doe_data, file.path(output_dir, "04_window_decay.png"))
+# ---------------------------------------------------------------------------
+# Data loading
+# ---------------------------------------------------------------------------
 
-# ============================================================================
-# Save Summary Statistics to CSV
-# ============================================================================
+load_experiment_data <- function(csv_path) {
+  cat("Loading experiment data...\\n")
+  data <- as.data.frame(fread(csv_path, integer64 = "numeric"))
+  if ("timestamp" %in% names(data)) {
+    data$timestamp <- suppressWarnings(as.POSIXct(data$timestamp))
+  }
+  data <- coerce_numeric_columns(data)
+  if ("configuration" %in% names(data)) {
+    data$configuration <- as.factor(data$configuration)
+  }
+  data
+}
 
-cat("Saving summary statistics...\n")
-write.csv(summary_stats, file.path(output_dir, "summary_statistics.csv"), row.names = FALSE)
+doe_data <- load_experiment_data(csv_path)
+if (!"configuration" %in% names(doe_data)) {
+  stop("CSV must include a configuration column")
+}
+
+numeric_metrics <- identify_numeric_metrics(doe_data)
+if (length(numeric_metrics) == 0) {
+  stop("No numeric metrics detected in the dataset")
+}
+
+primary_metrics <- choose_primary_metrics(numeric_metrics, limit = 6)
+plot_metrics <- primary_metrics
+
+cat("Loaded", nrow(doe_data), "observations across", length(levels(doe_data$configuration)), "configurations\\n")
+cat("Tracking", length(numeric_metrics), "numeric metrics\\n\\n")
+
+# ---------------------------------------------------------------------------
+# Summaries
+# ---------------------------------------------------------------------------
+
+metrics_long <- doe_data %>%
+  select(configuration, all_of(numeric_metrics)) %>%
+  pivot_longer(cols = all_of(numeric_metrics), names_to = "metric", values_to = "value")
+
+summary_by_config <- metrics_long %>%
+  group_by(configuration, metric) %>%
+  summarise(
+    observations = sum(!is.na(value)),
+    mean = mean(value, na.rm = TRUE),
+    sd = sd(value, na.rm = TRUE),
+    median = median(value, na.rm = TRUE),
+    min = min(value, na.rm = TRUE),
+    max = max(value, na.rm = TRUE),
+    .groups = "drop"
+  )
+
+summary_overall <- metrics_long %>%
+  group_by(metric) %>%
+  summarise(
+    observations = sum(!is.na(value)),
+    mean = mean(value, na.rm = TRUE),
+    sd = sd(value, na.rm = TRUE),
+    median = median(value, na.rm = TRUE),
+    min = min(value, na.rm = TRUE),
+    max = max(value, na.rm = TRUE),
+    .groups = "drop"
+  )
+
+# ---------------------------------------------------------------------------
+# Statistical tests
+# ---------------------------------------------------------------------------
+
+cat("Running ANOVA / Tukey across primary metrics...\\n")
+anova_results <- lapply(primary_metrics, run_anova_for_metric, data = doe_data)
+anova_results <- Filter(Negate(is.null), anova_results)
+
+# ---------------------------------------------------------------------------
+# Configuration effects & correlations
+# ---------------------------------------------------------------------------
+
+config_effects <- doe_data %>%
+  group_by(configuration) %>%
+  summarise(across(all_of(primary_metrics), ~mean(.x, na.rm = TRUE)), .groups = "drop")
+
+correlation_metrics <- unique(c(primary_metrics, setdiff(numeric_metrics, primary_metrics)))[seq_len(min(length(numeric_metrics), 12))]
+correlation_matrix <- NULL
+if (length(correlation_metrics) >= 2) {
+  correlation_matrix <- suppressWarnings(tryCatch(
+    stats::cor(doe_data[, correlation_metrics], use = "pairwise.complete.obs"),
+    error = function(e) NULL
+  ))
+}
+
+# ---------------------------------------------------------------------------
+# Visualizations
+# ---------------------------------------------------------------------------
+
+create_plot_grid <- function(plot_func, data, metrics, ncol = 2) {
+  metrics <- intersect(metrics, names(data))
+  if (length(metrics) == 0) {
+    return(NULL)
+  }
+  plots <- lapply(metrics, function(metric) plot_func(data, metric))
+  cowplot::plot_grid(plotlist = plots, ncol = min(ncol, length(plots)))
+}
+
+boxplot_path <- file.path(output_dir, "01_boxplots.png")
+boxplot_grid <- create_plot_grid(plot_metric_box, doe_data, plot_metrics)
+if (!is.null(boxplot_grid)) {
+  ggsave(boxplot_path, boxplot_grid, width = 14, height = 8, dpi = 300)
+}
+
+density_path <- file.path(output_dir, "02_distributions.png")
+density_grid <- create_plot_grid(plot_metric_density, doe_data, plot_metrics)
+if (!is.null(density_grid)) {
+  ggsave(density_path, density_grid, width = 14, height = 8, dpi = 300)
+}
+
+effects_path <- NULL
+effects_plot <- plot_metric_effects(doe_data, plot_metrics)
+if (!is.null(effects_plot)) {
+  effects_path <- file.path(output_dir, "03_effects.png")
+  ggsave(effects_path, effects_plot, width = 12, height = 6, dpi = 300)
+}
+
+correlation_path <- NULL
+correlation_plot <- plot_correlation_heatmap(doe_data, correlation_metrics)
+if (!is.null(correlation_plot)) {
+  correlation_path <- file.path(output_dir, "04_correlation.png")
+  ggsave(correlation_path, correlation_plot, width = 8, height = 8, dpi = 300)
+}
+
+# ---------------------------------------------------------------------------
+# Persist summaries
+# ---------------------------------------------------------------------------
+
+write.csv(summary_by_config, file.path(output_dir, "summary_statistics.csv"), row.names = FALSE)
+write.csv(summary_overall, file.path(output_dir, "metric_overview.csv"), row.names = FALSE)
 write.csv(config_effects, file.path(output_dir, "configuration_effects.csv"), row.names = FALSE)
-write.csv(window_decay_stats, file.path(output_dir, "window_decay_analysis.csv"), row.names = FALSE)
-write.csv(decay_relationships, file.path(output_dir, "window_decay_correlations.csv"), row.names = FALSE)
+if (!is.null(correlation_matrix)) {
+  write.csv(correlation_matrix, file.path(output_dir, "correlation_matrix.csv"))
+}
 
-# ============================================================================
-# Generate HTML Report
-# ============================================================================
-
-cat("Generating HTML report...\n")
+# ---------------------------------------------------------------------------
+# HTML report assembly
+# ---------------------------------------------------------------------------
 
 report_path <- file.path(output_dir, "doe_analysis_report.html")
 
-html_content <- sprintf('
-<!DOCTYPE html>
-<html>
-<head>
-  <meta charset="utf-8">
-  <title>StarForth DoE Analysis Report</title>
-  <style>
-    body { font-family: Arial, sans-serif; margin: 40px; background-color: #f5f5f5; }
-    .header { background-color: #2c3e50; color: white; padding: 20px; border-radius: 5px; }
-    .section { background-color: white; padding: 20px; margin: 20px 0; border-radius: 5px; box-shadow: 0 2px 4px rgba(0,0,0,0.1); }
-    .section h2 { color: #2c3e50; border-bottom: 2px solid #3498db; padding-bottom: 10px; }
-    table { width: 100%%; border-collapse: collapse; margin: 10px 0; }
-    th { background-color: #3498db; color: white; padding: 10px; text-align: left; }
-    td { padding: 10px; border-bottom: 1px solid #ddd; }
-    tr:hover { background-color: #f5f5f5; }
-    .metric { margin: 10px 0; padding: 10px; background-color: #ecf0f1; border-left: 4px solid #3498db; }
-    img { max-width: 100%%; height: auto; margin: 10px 0; }
-    .footer { color: #7f8c8d; margin-top: 40px; padding-top: 20px; border-top: 1px solid #bdc3c7; }
-  </style>
-</head>
-<body>
-
-<div class="header">
-  <h1>StarForth Physics Engine DoE Analysis Report</h1>
-  <p>Design of Experiments: Complete Statistical Study</p>
-  <p>Generated: %s</p>
-</div>
-
-<div class="section">
-  <h2>Executive Summary</h2>
-  <div class="metric">
-    <strong>Total Observations:</strong> %d
-  </div>
-  <div class="metric">
-    <strong>Configurations Tested:</strong> %s
-  </div>
-  <div class="metric">
-    <strong>Key Findings:</strong> Comprehensive ANOVA, post-hoc tests, and effect size analysis completed.
-  </div>
-</div>
-
-<div class="section">
-  <h2>Summary Statistics by Configuration</h2>
-  <table border="1">
-    <tr>
-      <th>Configuration</th>
-      <th>N</th>
-      <th>Cache Hit %% (Mean ± SD)</th>
-      <th>Bucket Hit %% (Mean ± SD)</th>
-      <th>Accuracy %% (Mean ± SD)</th>
-      <th>Window Width (Mean ± SD)</th>
-      <th>Decay Slope (Mean ± SD)</th>
-    </tr>
-', format(Sys.time(), "%Y-%m-%d %H:%M:%S"), nrow(doe_data), paste(levels(doe_data$configuration), collapse = ", "))
-
-# Add summary rows
-for (i in 1:nrow(summary_stats)) {
-  row <- summary_stats[i, ]
-  html_content <- sprintf('%s
-    <tr>
-      <td>%s</td>
-      <td>%d</td>
-      <td>%.2f ± %.2f</td>
-      <td>%.2f ± %.2f</td>
-      <td>%.2f ± %.2f</td>
-      <td>%.0f ± %.2f</td>
-      <td>%.4f ± %.4f</td>
-    </tr>
-', html_content,
-    row$configuration, row$N,
-    row$Cache_Hit_Mean, row$Cache_Hit_SD,
-    row$Bucket_Hit_Mean, row$Bucket_Hit_SD,
-    row$Accuracy_Mean, row$Accuracy_SD,
-    row$Window_Width_Mean, row$Window_Width_SD,
-    row$Decay_Slope_Mean, row$Decay_Slope_SD
-  )
+append_metric_table <- function(html, metric_name) {
+  metric_data <- summary_by_config %>% filter(metric == metric_name)
+  if (nrow(metric_data) == 0) {
+    return(html)
+  }
+  html <- c(html, sprintf('<h3>%s</h3>', humanize_metric(metric_name)))
+  html <- c(html, '<table>')
+  html <- c(html, '<tr><th>Configuration</th><th>Observations</th><th>Mean ± SD</th><th>Median</th><th>Min</th><th>Max</th></tr>')
+  for (i in seq_len(nrow(metric_data))) {
+    row <- metric_data[i, ]
+    obs <- ifelse(is.na(row$observations), 'n/a', sprintf('%d', as.integer(round(row$observations))))
+    median_val <- ifelse(is.na(row$median), 'n/a', sprintf('%.2f', row$median))
+    min_val <- ifelse(is.na(row$min), 'n/a', sprintf('%.2f', row$min))
+    max_val <- ifelse(is.na(row$max), 'n/a', sprintf('%.2f', row$max))
+    html <- c(html, sprintf(
+      '<tr><td>%s</td><td>%s</td><td>%s</td><td>%s</td><td>%s</td><td>%s</td></tr>',
+      row$configuration,
+      obs,
+      format_mean_sd(row$mean, row$sd),
+      median_val,
+      min_val,
+      max_val
+    ))
+  }
+  c(html, '</table>')
 }
 
-html_content <- paste0(html_content, '
-  </table>
-</div>
+append_anova_section <- function(html, anova_list) {
+  if (length(anova_list) == 0) {
+    html <- c(html, '<p>No ANOVA results were generated (insufficient variance).</p>')
+    return(html)
+  }
+  for (result in anova_list) {
+    html <- c(html, sprintf('<h3>%s</h3>', humanize_metric(result$metric)))
+    html <- c(html, '<pre>')
+    html <- c(html, paste(capture.output(print(result$summary)), collapse = '\n'))
+    html <- c(html, '</pre>')
+    if (!is.null(result$tukey)) {
+      html <- c(html, '<pre>')
+      html <- c(html, paste(capture.output(print(result$tukey)), collapse = '\n'))
+      html <- c(html, '</pre>')
+    }
+  }
+  html
+}
 
-<div class="section">
-  <h2>ANOVA Results</h2>
-  <h3>Cache Hit %</h3>
-  <pre>')
+html_sections <- c(
+  '<!DOCTYPE html>',
+  '<html>',
+  '<head>',
+  '<meta charset="utf-8">',
+  '<title>StarForth DoE Analysis Report</title>',
+  '<style>',
+  'body { font-family: Arial, sans-serif; margin: 40px; background: #f5f5f5; }',
+  '.header { background: #2c3e50; color: white; padding: 20px; border-radius: 6px; }',
+  '.section { background: white; padding: 20px; margin: 20px 0; border-radius: 6px; box-shadow: 0 2px 4px rgba(0,0,0,0.1); }',
+  'table { width: 100%; border-collapse: collapse; margin-top: 10px; }',
+  'th, td { padding: 8px 10px; border-bottom: 1px solid #ddd; text-align: left; }',
+  'th { background: #3498db; color: white; }',
+  'img { max-width: 100%; margin: 10px 0; border: 1px solid #eee; }',
+  '</style>',
+  '</head>',
+  '<body>'
+)
 
-html_content <- paste0(html_content, capture.output(print(aov_cache_summary)))
+html_sections <- c(html_sections,
+  '<div class="header">',
+  '<h1>StarForth Physics Engine DoE Analysis</h1>',
+  sprintf('<p>Generated: %s</p>', format(Sys.time(), "%Y-%m-%d %H:%M:%S")),
+  sprintf('<p>CSV: %s</p>', csv_path),
+  '</div>'
+)
 
-html_content <- paste0(html_content, '</pre>
+html_sections <- c(html_sections,
+  '<div class="section">',
+  '<h2>Executive Summary</h2>',
+  sprintf('<p><strong>Total observations:</strong> %d</p>', nrow(doe_data)),
+  sprintf('<p><strong>Configurations:</strong> %s</p>', paste(levels(doe_data$configuration), collapse = ', ')),
+  sprintf('<p><strong>Tracked metrics:</strong> %d</p>', length(numeric_metrics)),
+  '</div>'
+)
 
-  <h3>Bucket Hit %</h3>
-  <pre>')
+html_sections <- c(html_sections, '<div class="section"><h2>Metric Highlights</h2>')
+for (metric in plot_metrics) {
+  html_sections <- append_metric_table(html_sections, metric)
+}
+html_sections <- c(html_sections, '</div>')
 
-html_content <- paste0(html_content, capture.output(print(aov_bucket_summary)))
+html_sections <- c(html_sections, '<div class="section"><h2>ANOVA & Tukey Tests</h2>')
+html_sections <- append_anova_section(html_sections, anova_results)
+html_sections <- c(html_sections, '</div>')
 
-html_content <- paste0(html_content, '</pre>
-
-  <h3>Context Accuracy %</h3>
-  <pre>')
-
-html_content <- paste0(html_content, capture.output(print(aov_accuracy_summary)))
-
-html_content <- paste0(html_content, '</pre>
-</div>
-
-<div class="section">
-  <h2>Post-hoc Pairwise Comparisons (Tukey HSD)</h2>
-  <h3>Cache Hit %</h3>
-  <pre>')
-
-html_content <- paste0(html_content, capture.output(print(tukey_cache)))
-
-html_content <- paste0(html_content, '</pre>
-
-  <h3>Bucket Hit %</h3>
-  <pre>')
-
-html_content <- paste0(html_content, capture.output(print(tukey_bucket)))
-
-html_content <- paste0(html_content, '</pre>
-</div>
-
-<div class="section">
-  <h2>Configuration Effects Analysis</h2>
-  <table border="1">
-    <tr>
-      <th>Configuration</th>
-      <th>Cache Hit %%</th>
-      <th>Bucket Hit %%</th>
-      <th>Latency (ns)</th>
-      <th>Accuracy %%</th>
-      <th>VM Workload (ns)</th>
-    </tr>
-')
-
-for (i in 1:nrow(config_effects)) {
+html_sections <- c(html_sections, '<div class="section"><h2>Configuration Effects</h2>', '<table>')
+html_sections <- c(html_sections, '<tr><th>Configuration</th>')
+for (metric in plot_metrics) {
+  html_sections <- c(html_sections, sprintf('<th>%s</th>', humanize_metric(metric)))
+}
+html_sections <- c(html_sections, '</tr>')
+for (i in seq_len(nrow(config_effects))) {
   row <- config_effects[i, ]
-  html_content <- sprintf('%s
-    <tr>
-      <td>%s</td>
-      <td>%.2f</td>
-      <td>%.2f</td>
-      <td>%.0f</td>
-      <td>%.2f</td>
-      <td>%.0f</td>
-    </tr>
-', html_content,
-    row$configuration,
-    row$Cache_Hit_pct,
-    row$Bucket_Hit_pct,
-    row$Latency_ns,
-    row$Accuracy_pct,
-    row$VM_Workload_ns
-  )
+  html_sections <- c(html_sections, '<tr>')
+  html_sections <- c(html_sections, sprintf('<td>%s</td>', row$configuration))
+  for (metric in plot_metrics) {
+    val <- row[[metric]]
+    cell <- ifelse(is.na(val), 'n/a', sprintf('%.2f', val))
+    html_sections <- c(html_sections, sprintf('<td>%s</td>', cell))
+  }
+  html_sections <- c(html_sections, '</tr>')
 }
+html_sections <- c(html_sections, '</table>', '</div>')
 
-html_content <- paste0(html_content, '
-  </table>
-</div>
+html_sections <- c(html_sections, '<div class="section"><h2>Visualizations</h2>')
+if (!is.null(boxplot_grid)) {
+  html_sections <- c(html_sections, '<h3>Boxplots</h3>', '<img src="01_boxplots.png" alt="Boxplots">')
+}
+if (!is.null(density_grid)) {
+  html_sections <- c(html_sections, '<h3>Distributions</h3>', '<img src="02_distributions.png" alt="Distributions">')
+}
+if (!is.null(effects_plot)) {
+  html_sections <- c(html_sections, '<h3>Mean Effects</h3>', '<img src="03_effects.png" alt="Effects">')
+}
+if (!is.null(correlation_path)) {
+  html_sections <- c(html_sections, '<h3>Correlation Heatmap</h3>', '<img src="04_correlation.png" alt="Correlation Heatmap">')
+}
+html_sections <- c(html_sections, '</div>')
 
-<div class="section">
-  <h2>Visualizations</h2>
+html_sections <- c(html_sections, '<div class="section"><h2>Artifacts</h2><ul>')
+html_sections <- c(html_sections, '<li>summary_statistics.csv</li>')
+html_sections <- c(html_sections, '<li>metric_overview.csv</li>')
+html_sections <- c(html_sections, '<li>configuration_effects.csv</li>')
+if (!is.null(correlation_matrix)) {
+  html_sections <- c(html_sections, '<li>correlation_matrix.csv</li>')
+}
+if (!is.null(boxplot_grid)) {
+  html_sections <- c(html_sections, '<li>01_boxplots.png</li>')
+}
+if (!is.null(density_grid)) {
+  html_sections <- c(html_sections, '<li>02_distributions.png</li>')
+}
+if (!is.null(effects_plot)) {
+  html_sections <- c(html_sections, '<li>03_effects.png</li>')
+}
+if (!is.null(correlation_plot)) {
+  html_sections <- c(html_sections, '<li>04_correlation.png</li>')
+}
+html_sections <- c(html_sections, '</ul></div>')
 
-  <h3>Distribution by Configuration</h3>
-  <img src="01_boxplots.png" alt="Boxplots by Configuration">
+html_sections <- c(html_sections, '</body></html>')
 
-  <h3>Probability Distributions</h3>
-  <img src="02_distributions.png" alt="Distributions">
+writeLines(html_sections, report_path)
 
-  <h3>Effect Comparison</h3>
-  <img src="03_effects.png" alt="Effects">
-</div>
+# ---------------------------------------------------------------------------
+# Console summary
+# ---------------------------------------------------------------------------
 
-<div class="section">
-  <h2>Data Files Generated</h2>
-  <ul>
-    <li>summary_statistics.csv - Descriptive statistics by configuration</li>
-    <li>configuration_effects.csv - Mean effects by configuration</li>
-    <li>01_boxplots.png - Boxplot visualizations</li>
-    <li>02_distributions.png - Probability distributions</li>
-    <li>03_effects.png - Effect comparison chart</li>
-  </ul>
-</div>
-
-<div class="footer">
-  <p>This report was automatically generated by StarForth DoE Complete Study Analysis</p>
-  <p>Report location: ' , report_path , '</p>
-</div>
-
-</body>
-</html>
-')
-
-writeLines(html_content, report_path)
-cat("  Saved:", report_path, "\n")
-
-# ============================================================================
-# Summary
-# ============================================================================
-
-cat("\n")
-cat("=======================================================\n")
-cat("ANALYSIS COMPLETE\n")
-cat("=======================================================\n")
-cat("Results saved to:", output_dir, "\n\n")
-cat("Generated files:\n")
+cat("\\n=======================================================\\n")
+cat("Analysis complete\\n")
+cat("=======================================================\\n")
+cat("Results saved to:", output_dir, "\\n")
+cat("Artifacts:\n")
 cat("  - summary_statistics.csv\n")
+cat("  - metric_overview.csv\n")
 cat("  - configuration_effects.csv\n")
-cat("  - window_decay_analysis.csv\n")
-cat("  - window_decay_correlations.csv\n")
-cat("  - 01_boxplots.png\n")
-cat("  - 02_distributions.png\n")
-cat("  - 03_effects.png\n")
-cat("  - 04_window_decay.png\n")
-cat("  - doe_analysis_report.html\n\n")
-cat("Open the HTML report to view complete analysis:\n")
-cat("  ", report_path, "\n")
-cat("=======================================================\n\n")
+if (!is.null(correlation_matrix)) {
+  cat("  - correlation_matrix.csv\n")
+}
+if (!is.null(boxplot_grid)) {
+  cat("  - 01_boxplots.png\n")
+}
+if (!is.null(density_grid)) {
+  cat("  - 02_distributions.png\n")
+}
+if (!is.null(effects_plot)) {
+  cat("  - 03_effects.png\n")
+}
+if (!is.null(correlation_plot)) {
+  cat("  - 04_correlation.png\n")
+}
+cat("  - doe_analysis_report.html\n")
+cat("=======================================================\\n\\n")

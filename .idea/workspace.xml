@@ -4,10 +4,17 @@
     <option name="autoReloadType" value="SELECTIVE" />
   </component>
   <component name="ChangeListManager">
-    <list default="true" id="9f0f71c5-02cb-4cba-93d9-3749ca0257a1" name="Changes" comment="Remove outdated documentation files and add new bash scripts for experiment execution">
-      <change beforePath="$PROJECT_DIR$/QUICKSTART.md" beforeDir="false" afterPath="$PROJECT_DIR$/QUICKSTART.md" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/README.md" beforeDir="false" afterPath="$PROJECT_DIR$/README.md" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/live_monitor.R" beforeDir="false" afterPath="$PROJECT_DIR$/live_monitor.R" afterDir="false" />
+    <list default="true" id="9f0f71c5-02cb-4cba-93d9-3749ca0257a1" name="Changes" comment="Add IntelliJ configuration files and update scripts for streamlined experiment management.">
+      <change afterPath="$PROJECT_DIR$/AGENTS.md" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/R/analysis/complete_study.R" beforeDir="false" afterPath="$PROJECT_DIR$/R/analysis/complete_study.R" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/R/analysis/live_monitor.R" beforeDir="false" afterPath="$PROJECT_DIR$/R/analysis/live_monitor.R" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/experiments/EXP_00/experiment_results.csv" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/outputs/EXP_00/01_boxplots.png" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/outputs/EXP_00/02_distributions.png" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/outputs/EXP_00/03_effects.png" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/outputs/EXP_00/configuration_effects.csv" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/outputs/EXP_00/doe_analysis_report.html" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/outputs/EXP_00/summary_statistics.csv" beforeDir="false" />
     </list>
     <option name="SHOW_DIALOG" value="false" />
     <option name="HIGHLIGHT_CONFLICTS" value="true" />
@@ -210,7 +217,15 @@
       <option name="project" value="LOCAL" />
       <updated>1762716460990</updated>
     </task>
-    <option name="localTasksCounter" value="3" />
+    <task id="LOCAL-00003" summary="Add IntelliJ configuration files and update scripts for streamlined experiment management.">
+      <option name="closed" value="true" />
+      <created>1762734771595</created>
+      <option name="number" value="00003" />
+      <option name="presentableId" value="LOCAL-00003" />
+      <option name="project" value="LOCAL" />
+      <updated>1762734771595</updated>
+    </task>
+    <option name="localTasksCounter" value="4" />
     <servers />
   </component>
   <component name="TypeScriptGeneratedFilesManager">
@@ -254,6 +269,7 @@
   </component>
   <component name="VcsManagerConfiguration">
     <MESSAGE value="Remove outdated documentation files and add new bash scripts for experiment execution" />
-    <option name="LAST_COMMIT_MESSAGE" value="Remove outdated documentation files and add new bash scripts for experiment execution" />
+    <MESSAGE value="Add IntelliJ configuration files and update scripts for streamlined experiment management." />
+    <option name="LAST_COMMIT_MESSAGE" value="Add IntelliJ configuration files and update scripts for streamlined experiment management." />
   </component>
 </project>

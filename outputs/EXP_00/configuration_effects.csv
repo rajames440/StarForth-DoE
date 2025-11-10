@@ -1,5 +1,0 @@
-"configuration","Cache_Hit_pct","Bucket_Hit_pct","Latency_ns","Accuracy_pct","VM_Workload_ns","Window_Width","Decay_Slope"
-"A_B_C_FULL",7.35,74.68,39.0333333333333,88.37,5,4096,2
-"A_B_CACHE",0.358333333333333,81.6616666666667,30.4666666666667,0,0,4096,2
-"A_BASELINE",0,0,0,0,0,4096,2
-"A_C_FULL",0,0,0,0,0,4096,2
