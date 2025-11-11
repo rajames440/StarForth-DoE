@@ -1,0 +1,292 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>StarForth DoE Analysis Report</title>
+<style>
+body { font-family: Arial, sans-serif; margin: 40px; background: #f5f5f5; }
+.header { background: #2c3e50; color: white; padding: 20px; border-radius: 6px; }
+.section { background: white; padding: 20px; margin: 20px 0; border-radius: 6px; box-shadow: 0 2px 4px rgba(0,0,0,0.1); }
+table { width: 100%; border-collapse: collapse; margin-top: 10px; }
+th, td { padding: 8px 10px; border-bottom: 1px solid #ddd; text-align: left; }
+th { background: #3498db; color: white; }
+img { max-width: 100%; margin: 10px 0; border: 1px solid #eee; }
+</style>
+</head>
+<body>
+<div class="header">
+<h1>StarForth Physics Engine DoE Analysis</h1>
+<p>Generated: 2025-11-10 07:05:56</p>
+<p>CSV: ./experiments/DOE_03/experiment_results.csv</p>
+</div>
+<div class="section">
+<h2>Executive Summary</h2>
+<p><strong>Total observations:</strong> 360</p>
+<p><strong>Configurations:</strong> A_B_C_FULL, A_B_CACHE, A_BASELINE, A_C_FULL</p>
+<p><strong>Tracked metrics:</strong> 32</p>
+</div>
+<div class="section"><h2>Metric Highlights</h2>
+<h3>Cache Hit %</h3>
+<table>
+<tr><th>Configuration</th><th>Observations</th><th>Mean ± SD</th><th>Median</th><th>Min</th><th>Max</th></tr>
+<tr><td>A_B_C_FULL</td><td>90</td><td>22.74 ± 0.94</td><td>22.57</td><td>21.39</td><td>27.02</td></tr>
+<tr><td>A_B_CACHE</td><td>90</td><td>17.62 ± 0.99</td><td>17.31</td><td>16.70</td><td>21.87</td></tr>
+<tr><td>A_BASELINE</td><td>90</td><td>0.00</td><td>0.00</td><td>0.00</td><td>0.00</td></tr>
+<tr><td>A_C_FULL</td><td>90</td><td>0.00</td><td>0.00</td><td>0.00</td><td>0.00</td></tr>
+</table>
+<h3>Bucket Hit %</h3>
+<table>
+<tr><th>Configuration</th><th>Observations</th><th>Mean ± SD</th><th>Median</th><th>Min</th><th>Max</th></tr>
+<tr><td>A_B_C_FULL</td><td>90</td><td>59.29 ± 0.94</td><td>59.46</td><td>55.01</td><td>60.63</td></tr>
+<tr><td>A_B_CACHE</td><td>90</td><td>64.41 ± 0.99</td><td>64.72</td><td>60.16</td><td>65.33</td></tr>
+<tr><td>A_BASELINE</td><td>90</td><td>0.00</td><td>0.00</td><td>0.00</td><td>0.00</td></tr>
+<tr><td>A_C_FULL</td><td>90</td><td>0.00</td><td>0.00</td><td>0.00</td><td>0.00</td></tr>
+</table>
+<h3>Context Accuracy %</h3>
+<table>
+<tr><th>Configuration</th><th>Observations</th><th>Mean ± SD</th><th>Median</th><th>Min</th><th>Max</th></tr>
+<tr><td>A_B_C_FULL</td><td>90</td><td>88.37</td><td>88.37</td><td>88.37</td><td>88.37</td></tr>
+<tr><td>A_B_CACHE</td><td>90</td><td>0.00</td><td>0.00</td><td>0.00</td><td>0.00</td></tr>
+<tr><td>A_BASELINE</td><td>90</td><td>0.00</td><td>0.00</td><td>0.00</td><td>0.00</td></tr>
+<tr><td>A_C_FULL</td><td>90</td><td>0.00</td><td>0.00</td><td>0.00</td><td>0.00</td></tr>
+</table>
+<h3>Prefetch Accuracy %</h3>
+<table>
+<tr><th>Configuration</th><th>Observations</th><th>Mean ± SD</th><th>Median</th><th>Min</th><th>Max</th></tr>
+<tr><td>A_B_C_FULL</td><td>90</td><td>88.37</td><td>88.37</td><td>88.37</td><td>88.37</td></tr>
+<tr><td>A_B_CACHE</td><td>90</td><td>0.00</td><td>0.00</td><td>0.00</td><td>0.00</td></tr>
+<tr><td>A_BASELINE</td><td>90</td><td>0.00</td><td>0.00</td><td>0.00</td><td>0.00</td></tr>
+<tr><td>A_C_FULL</td><td>90</td><td>0.00</td><td>0.00</td><td>0.00</td><td>0.00</td></tr>
+</table>
+<h3>Vm Workload Duration (Ns) Q48</h3>
+<table>
+<tr><th>Configuration</th><th>Observations</th><th>Mean ± SD</th><th>Median</th><th>Min</th><th>Max</th></tr>
+<tr><td>A_B_C_FULL</td><td>90</td><td>386498991081.24 ± 30677000050.07</td><td>379038171136.00</td><td>339529302016.00</td><td>515281780736.00</td></tr>
+<tr><td>A_B_CACHE</td><td>90</td><td>280933061973.33 ± 48132982047.58</td><td>272195584000.00</td><td>229622874112.00</td><td>685335642112.00</td></tr>
+<tr><td>A_BASELINE</td><td>90</td><td>279532539448.89 ± 59138600667.67</td><td>268139233280.00</td><td>235622629376.00</td><td>806526124032.00</td></tr>
+<tr><td>A_C_FULL</td><td>90</td><td>340691905558.76 ± 30440993205.61</td><td>331555176448.00</td><td>306215583744.00</td><td>549736415232.00</td></tr>
+</table>
+<h3>Cache Hit Latency (Ns)</h3>
+<table>
+<tr><th>Configuration</th><th>Observations</th><th>Mean ± SD</th><th>Median</th><th>Min</th><th>Max</th></tr>
+<tr><td>A_B_C_FULL</td><td>90</td><td>34.44 ± 9.59</td><td>33.00</td><td>30.00</td><td>119.00</td></tr>
+<tr><td>A_B_CACHE</td><td>90</td><td>29.19 ± 1.24</td><td>29.00</td><td>25.00</td><td>35.00</td></tr>
+<tr><td>A_BASELINE</td><td>90</td><td>0.00</td><td>0.00</td><td>0.00</td><td>0.00</td></tr>
+<tr><td>A_C_FULL</td><td>90</td><td>0.00</td><td>0.00</td><td>0.00</td><td>0.00</td></tr>
+</table>
+</div>
+<div class="section"><h2>ANOVA & Tukey Tests</h2>
+<h3>Cache Hit %</h3>
+<pre>
+               Df Sum Sq Mean Sq F value Pr(>F)    
+configuration   3  37824   12608   27006 <2e-16 ***
+Residuals     356    166       0                   
+---
+Signif. codes:  0 ‘***’ 0.001 ‘**’ 0.01 ‘*’ 0.05 ‘.’ 0.1 ‘ ’ 1
+</pre>
+<pre>
+  Tukey multiple comparisons of means
+    95% family-wise confidence level
+
+Fit: aov(formula = formula, data = data)
+
+$configuration
+                               diff         lwr         upr p adj
+A_B_CACHE-A_B_C_FULL  -5.115778e+00  -5.3786879  -4.8528676     0
+A_BASELINE-A_B_C_FULL -2.273656e+01 -22.9994657 -22.4736454     0
+A_C_FULL-A_B_C_FULL   -2.273656e+01 -22.9994657 -22.4736454     0
+A_BASELINE-A_B_CACHE  -1.762078e+01 -17.8836879 -17.3578676     0
+A_C_FULL-A_B_CACHE    -1.762078e+01 -17.8836879 -17.3578676     0
+A_C_FULL-A_BASELINE    4.456682e-14  -0.2629101   0.2629101     1
+
+</pre>
+<h3>Bucket Hit %</h3>
+<pre>
+               Df Sum Sq Mean Sq F value Pr(>F)    
+configuration   3 345478  115159  246543 <2e-16 ***
+Residuals     356    166       0                   
+---
+Signif. codes:  0 ‘***’ 0.001 ‘**’ 0.01 ‘*’ 0.05 ‘.’ 0.1 ‘ ’ 1
+</pre>
+<pre>
+  Tukey multiple comparisons of means
+    95% family-wise confidence level
+
+Fit: aov(formula = formula, data = data)
+
+$configuration
+                               diff         lwr         upr p adj
+A_B_CACHE-A_B_C_FULL   5.115778e+00   4.8527994   5.3787562     0
+A_BASELINE-A_B_C_FULL -5.929322e+01 -59.5562006 -59.0302438     0
+A_C_FULL-A_B_C_FULL   -5.929322e+01 -59.5562006 -59.0302438     0
+A_BASELINE-A_B_CACHE  -6.440900e+01 -64.6719784 -64.1460216     0
+A_C_FULL-A_B_CACHE    -6.440900e+01 -64.6719784 -64.1460216     0
+A_C_FULL-A_BASELINE    1.794120e-13  -0.2629784   0.2629784     1
+
+</pre>
+<h3>Context Accuracy %</h3>
+<pre>
+               Df Sum Sq Mean Sq   F value Pr(>F)    
+configuration   3 527125  175708 4.017e+30 <2e-16 ***
+Residuals     356      0       0                     
+---
+Signif. codes:  0 ‘***’ 0.001 ‘**’ 0.01 ‘*’ 0.05 ‘.’ 0.1 ‘ ’ 1
+</pre>
+<pre>
+  Tukey multiple comparisons of means
+    95% family-wise confidence level
+
+Fit: aov(formula = formula, data = data)
+
+$configuration
+                               diff           lwr           upr     p adj
+A_B_CACHE-A_B_C_FULL  -8.837000e+01 -8.837000e+01 -8.837000e+01 0.0000000
+A_BASELINE-A_B_C_FULL -8.837000e+01 -8.837000e+01 -8.837000e+01 0.0000000
+A_C_FULL-A_B_C_FULL   -8.837000e+01 -8.837000e+01 -8.837000e+01 0.0000000
+A_BASELINE-A_B_CACHE   1.830437e-13  1.025636e-13  2.635238e-13 0.0000001
+A_C_FULL-A_B_CACHE     1.813463e-13  1.008662e-13  2.618264e-13 0.0000001
+A_C_FULL-A_BASELINE   -1.697408e-15 -8.217750e-14  7.878269e-14 0.9999420
+
+</pre>
+<h3>Prefetch Accuracy %</h3>
+<pre>
+               Df Sum Sq Mean Sq   F value Pr(>F)    
+configuration   3 527125  175708 4.017e+30 <2e-16 ***
+Residuals     356      0       0                     
+---
+Signif. codes:  0 ‘***’ 0.001 ‘**’ 0.01 ‘*’ 0.05 ‘.’ 0.1 ‘ ’ 1
+</pre>
+<pre>
+  Tukey multiple comparisons of means
+    95% family-wise confidence level
+
+Fit: aov(formula = formula, data = data)
+
+$configuration
+                               diff           lwr           upr     p adj
+A_B_CACHE-A_B_C_FULL  -8.837000e+01 -8.837000e+01 -8.837000e+01 0.0000000
+A_BASELINE-A_B_C_FULL -8.837000e+01 -8.837000e+01 -8.837000e+01 0.0000000
+A_C_FULL-A_B_C_FULL   -8.837000e+01 -8.837000e+01 -8.837000e+01 0.0000000
+A_BASELINE-A_B_CACHE   1.830437e-13  1.025636e-13  2.635238e-13 0.0000001
+A_C_FULL-A_B_CACHE     1.813463e-13  1.008662e-13  2.618264e-13 0.0000001
+A_C_FULL-A_BASELINE   -1.697408e-15 -8.217750e-14  7.878269e-14 0.9999420
+
+</pre>
+<h3>Vm Workload Duration (Ns) Q48</h3>
+<pre>
+               Df    Sum Sq  Mean Sq F value Pr(>F)    
+configuration   3 7.200e+23 2.40e+23     125 <2e-16 ***
+Residuals     356 6.837e+23 1.92e+21                   
+---
+Signif. codes:  0 ‘***’ 0.001 ‘**’ 0.01 ‘*’ 0.05 ‘.’ 0.1 ‘ ’ 1
+</pre>
+<pre>
+  Tukey multiple comparisons of means
+    95% family-wise confidence level
+
+Fit: aov(formula = formula, data = data)
+
+$configuration
+                               diff           lwr          upr     p adj
+A_B_CACHE-A_B_C_FULL  -105565929108 -122428372725 -88703485491 0.0000000
+A_BASELINE-A_B_C_FULL -106966451632 -123828895249 -90104008015 0.0000000
+A_C_FULL-A_B_C_FULL    -45807085522  -62669529140 -28944641905 0.0000000
+A_BASELINE-A_B_CACHE    -1400522524  -18262966142  15461921093 0.9965145
+A_C_FULL-A_B_CACHE      59758843585   42896399968  76621287203 0.0000000
+A_C_FULL-A_BASELINE     61159366110   44296922493  78021809727 0.0000000
+
+</pre>
+<h3>Cache Hit Latency (Ns)</h3>
+<pre>
+               Df Sum Sq Mean Sq F value Pr(>F)    
+configuration   3  92350   30783    1316 <2e-16 ***
+Residuals     356   8330      23                   
+---
+Signif. codes:  0 ‘***’ 0.001 ‘**’ 0.01 ‘*’ 0.05 ‘.’ 0.1 ‘ ’ 1
+</pre>
+<pre>
+  Tukey multiple comparisons of means
+    95% family-wise confidence level
+
+Fit: aov(formula = formula, data = data)
+
+$configuration
+                               diff        lwr        upr p adj
+A_B_CACHE-A_B_C_FULL  -5.255556e+00  -7.116846  -3.394265     0
+A_BASELINE-A_B_C_FULL -3.444444e+01 -36.305735 -32.583154     0
+A_C_FULL-A_B_C_FULL   -3.444444e+01 -36.305735 -32.583154     0
+A_BASELINE-A_B_CACHE  -2.918889e+01 -31.050180 -27.327598     0
+A_C_FULL-A_B_CACHE    -2.918889e+01 -31.050180 -27.327598     0
+A_C_FULL-A_BASELINE   -1.020418e-14  -1.861291   1.861291     1
+
+</pre>
+</div>
+<div class="section"><h2>Configuration Effects</h2>
+<table>
+<tr><th>Configuration</th>
+<th>Cache Hit %</th>
+<th>Bucket Hit %</th>
+<th>Context Accuracy %</th>
+<th>Prefetch Accuracy %</th>
+<th>Vm Workload Duration (Ns) Q48</th>
+<th>Cache Hit Latency (Ns)</th>
+</tr>
+<tr>
+<td>A_B_C_FULL</td>
+<td>22.74</td>
+<td>59.29</td>
+<td>88.37</td>
+<td>88.37</td>
+<td>386498991081.24</td>
+<td>34.44</td>
+</tr>
+<tr>
+<td>A_B_CACHE</td>
+<td>17.62</td>
+<td>64.41</td>
+<td>0.00</td>
+<td>0.00</td>
+<td>280933061973.33</td>
+<td>29.19</td>
+</tr>
+<tr>
+<td>A_BASELINE</td>
+<td>0.00</td>
+<td>0.00</td>
+<td>0.00</td>
+<td>0.00</td>
+<td>279532539448.89</td>
+<td>0.00</td>
+</tr>
+<tr>
+<td>A_C_FULL</td>
+<td>0.00</td>
+<td>0.00</td>
+<td>0.00</td>
+<td>0.00</td>
+<td>340691905558.76</td>
+<td>0.00</td>
+</tr>
+</table>
+</div>
+<div class="section"><h2>Visualizations</h2>
+<h3>Boxplots</h3>
+<img src="01_boxplots.png" alt="Boxplots">
+<h3>Distributions</h3>
+<img src="02_distributions.png" alt="Distributions">
+<h3>Mean Effects</h3>
+<img src="03_effects.png" alt="Effects">
+<h3>Correlation Heatmap</h3>
+<img src="04_correlation.png" alt="Correlation Heatmap">
+</div>
+<div class="section"><h2>Artifacts</h2><ul>
+<li>summary_statistics.csv</li>
+<li>metric_overview.csv</li>
+<li>configuration_effects.csv</li>
+<li>correlation_matrix.csv</li>
+<li>01_boxplots.png</li>
+<li>02_distributions.png</li>
+<li>03_effects.png</li>
+<li>04_correlation.png</li>
+</ul></div>
+</body></html>

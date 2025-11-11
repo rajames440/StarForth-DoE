@@ -1,0 +1,12 @@
+
+Sequential Nested DoE Experiment
+Start time: 2025-11-10T13:37:37
+Iterations: 12
+Runs per config/heartbeat combo: 1440
+Total runs: 11520
+
+
+End time: 2025-11-10T13:42:24
+Total runtime: 0h 4m 47s
+Results: DOE_05/experiment_results.csv
+Logs: DOE_05/run_logs/

@@ -1,0 +1,5 @@
+"configuration","cache_hit_percent","bucket_hit_percent","context_accuracy_percent","prefetch_accuracy_percent","vm_workload_duration_ns_q48","cache_hit_latency_ns"
+"A_B_C_FULL",23.415,58.615,88.37,88.37,348469588787.2,32.7666666666667
+"A_B_CACHE",18.3916666666667,63.6371666666667,0,0,261895507148.8,28.2333333333333
+"A_BASELINE",0,0,0,0,248652400776.533,0
+"A_C_FULL",0,0,0,0,317423097173.333,0
